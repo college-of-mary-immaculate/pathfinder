@@ -20,3 +20,9 @@ FEATURES
 - Layout Grid Clearing button switch.
 - Run switch button for the program's functioning.
 - Legend notifications.
+
+  Tools
+  - HTML
+  - CSS
+  - Javascript
+  - Google font API for the fonts.
