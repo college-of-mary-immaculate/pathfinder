@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BFS Navigation — 435 Pandi Balagtas Rd to College of Mary Immaculate</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap');
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; font-family:'Roboto', Arial, sans-serif; background:#e9ebee;
+    display:flex; flex-direction:column; align-items:center; padding:16px 12px 30px;
+  }
+  .wrap{ width:100%; max-width:1280px; }
+
+  /* --- top search bar, mimicking Google Maps directions box --- */
+  .searchbar{
+    background:#fff; border-radius:12px; box-shadow:0 1px 6px rgba(0,0,0,.18);
+    padding:10px 14px; display:flex; align-items:center; gap:10px; margin-bottom:10px;
+  }
+  .pinrow{ display:flex; flex-direction:column; gap:8px; flex:1; }
+  .pinfield{ display:flex; align-items:center; gap:10px; background:#f1f3f4; border-radius:8px; padding:8px 10px; }
+  .dot{ width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+  .dot.a{ background:#34a853; }
+  .dot.b{ background:#ea4335; }
+  .pinfield span{ font-size:13.5px; color:#3c4043; font-weight:500; }
+  .badge{
+    font-family:'Google Sans','Roboto',sans-serif; font-weight:700; font-size:12px;
+    color:#1a73e8; background:#e8f0fe; border-radius:20px; padding:6px 14px; white-space:nowrap;
+  }
+  button#goBtn{
+    background:#1a73e8; color:#fff; border:none; border-radius:8px; padding:10px 18px;
+    font-weight:600; font-size:13.5px; cursor:pointer; white-space:nowrap;
+  }
+  button#goBtn:hover{ background:#1765cc; }
+  button#goBtn:disabled{ background:#9ec1f2; cursor:default; }
+
+  /* --- map --- */
+  #mapWrap{
+    position:relative; border-radius:14px; overflow:hidden; box-shadow:0 2px 10px rgba(0,0,0,.2);
+    background:#e9eee9;
+  }
+  canvas{ display:block; width:100%; height:auto; }
+
+  /* --- bottom GPS card --- */
+  .card{
+    margin-top:10px; background:#fff; border-radius:12px; box-shadow:0 1px 6px rgba(0,0,0,.18);
+    padding:14px 16px; display:flex; align-items:center; gap:22px; flex-wrap:wrap;
+  }
+  .card .algo{ font-family:'Google Sans','Roboto',sans-serif; font-weight:700; font-size:15px; color:#202124; }
+  .card .algo small{ display:block; font-weight:400; font-size:11.5px; color:#5f6368; margin-top:2px; }
+  .stat{ text-align:center; }
+  .stat b{ display:block; font-size:17px; color:#202124; font-family:'Google Sans','Roboto',sans-serif; }
+  .stat span{ font-size:11px; color:#5f6368; text-transform:uppercase; letter-spacing:.04em; }
+  .note{ margin-left:auto; font-size:11.5px; color:#5f6368; max-width:300px; line-height:1.4; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="searchbar">
+    <div class="pinrow">
+      <div class="pinfield"><span class="dot a"></span><span>435 Pandi Balagtas Rd</span></div>
+      <div class="pinfield"><span class="dot b"></span><span>College of Mary Immaculate</span></div>
+    </div>
+    <div class="badge">Breadth-First Search</div>
+    <button id="goBtn">Start navigation</button>
+  </div>
+
+  <div id="mapWrap">
+    <canvas id="c" width="1280" height="408"></canvas>
+  </div>
+
+  <div class="card">
+    <div class="algo">Route found<small>via unweighted BFS — fewest road segments, not fastest</small></div>
+    <div class="stat"><b id="statVisited">–</b><span>Cells explored</span></div>
+    <div class="stat"><b id="statLen">–</b><span>Route cells</span></div>
+    <div class="stat"><b id="statDist">–</b><span>Approx. distance</span></div>
+    <div class="stat"><b id="statEta">–</b><span>Sim. ETA</span></div>
+    <div class="note">BFS expands one road-hop at a time in every direction and stops the moment it reaches the destination — it has no notion of traffic or road speed, only hop count.</div>
+  </div>
+
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = 1280, H = 408;
+
+// ---------------------------------------------------------------- palette
+const COL = {
+  terrain: '#eef1ea',
+  green:   '#d6ead6',
+  road:    '#ffffff',
+  roadEdge:'#c6cbd1',
+  main:    '#ffffff',
+  mainEdge:'#c1c5cb',
+  building:'#e2ddd4',
+  buildingEdge:'#c9c1b3',
+  creek:   '#a9d3ea',
+  visited: 'rgba(66,133,244,0.22)',
+  frontier:'rgba(66,133,244,0.5)',
+  route:   '#1a73e8',
+  routeOutline:'#ffffff',
+};
+
+// ---------------------------------------------------------- road skeleton
+// traced (approximately) from the screenshot
+const ROADS = [
+  // Pandi Balagtas Rd -> the long diagonal arterial across the whole map
+  {x1:0,y1:236,x2:1280,y2:56,w:15,main:true},
+  { x1:140,y1:0,   x2:140,y2:148, w:6 },   // San Andres St
+  { x1:506,y1:150, x2:506,y2:408, w:7 },   // Mailbong Malanda Rd
+  { x1:791,y1:104, x2:791,y2:408, w:6 },   // Wella Metal Private St
+  { x1:986,y1:104, x2:986,y2:408, w:7 },   // Marco St
+  { x1:1211,y1:104,x2:1211,y2:320,w:6 },   // Santa Maria Pandi Rd
+  { x1:1090,y1:330,x2:1150,y2:408,w:5 },   // Matiaga St
+];
+
+const BUILDINGS = [
+  ["Jepoys bulatit's AGRL Church", 0,0,82,46],
+  ["Bunsuran National High School", 298,90,398,130],
+  ["Ron Pavilion / Sergio Enterprise", 228,158,342,216],
+  ["Yes Hotel Pandi, Bulacan", 500,144,592,184],
+  ["Manatal Coop Empowerment Center", 48,300,182,346],
+  ["Casa Benita", 320,340,400,380],
+  ["Montessori Academy / changlong warehouse", 504,304,600,356],
+  ["Cad's Villa Private Resort", 268,394,360,408],
+  ["Pandi Public Market", 800,44,900,90],
+  ["Iglesia Ni Cristo - Pandi", 758,84,850,126],
+  ["Immaculate Conception Child.", 918,0,1010,35],
+  ["College of Mary Immaculate", 1058,34,1160,80],
+  ["7-Eleven Pandi Bulacan", 1058,80,1160,110],
+  ["Immaculate Conception Parish", 1088,120,1200,166],
+  ["PHirst Pandi", 1238,194,1280,246],
+  ["Brews Ko Coffee Shack", 1058,344,1160,386],
+];
+
+const CREEK = [[160,178],[188,206],[222,226],[260,246],[296,272],[288,308],[258,344],[228,378],[210,408]];
+
+// -------------------------------------------------------------- grid build
+const CELL = 8;
+const COLS = Math.floor(W / CELL), ROWS = Math.floor(H / CELL);
+let passable = Array.from({length:ROWS}, ()=>Array(COLS).fill(false));
+let onMain   = Array.from({length:ROWS}, ()=>Array(COLS).fill(false));
+
+function markSegment(x1,y1,x2,y2,width,main){
+  const steps = Math.max(Math.round(Math.hypot(x2-x1,y2-y1) * 2), 1);
+  const half = width/2;
+  for(let i=0;i<=steps;i++){
+    const t = i/steps;
+    const x = x1 + (x2-x1)*t, y = y1 + (y2-y1)*t;
+    const r0 = Math.floor((y-half)/CELL), r1 = Math.floor((y+half)/CELL);
+    const c0 = Math.floor((x-half)/CELL), c1 = Math.floor((x+half)/CELL);
+    for(let r=Math.max(r0,0); r<=Math.min(r1,ROWS-1); r++){
+      for(let c=Math.max(c0,0); c<=Math.min(c1,COLS-1); c++){
+        passable[r][c] = true;
+        if(main) onMain[r][c] = true;
+      }
+    }
+  }
+}
+ROADS.forEach(s=>markSegment(s.x1,s.y1,s.x2,s.y2,s.w,s.main));
+
+function key(r,c){ return r*COLS+c; }
+function neighbors(r,c){
+  const out=[];
+  for(const [dr,dc] of [[-1,0],[1,0],[0,-1],[0,1]]){
+    const nr=r+dr, nc=c+dc;
+    if(nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&passable[nr][nc]) out.push([nr,nc]);
+  }
+  return out;
+}
+function nearestPassable(r,c){
+  if(passable[r]&&passable[r][c]) return [r,c];
+  let best=[r,c], bestD=1e9;
+  for(let rr=0;rr<ROWS;rr++) for(let cc=0;cc<COLS;cc++){
+    if(passable[rr][cc]){
+      const d=(rr-r)**2+(cc-c)**2;
+      if(d<bestD){ bestD=d; best=[rr,cc]; }
+    }
+  }
+  return best;
+}
+
+const start = nearestPassable(Math.floor(232/CELL), Math.floor(20/CELL));
+const end   = nearestPassable(Math.floor(79/CELL), Math.floor(1110/CELL));
+
+function breadthFirstSearch(startNode, endNode){
+  const visited = new Set([key(...startNode)]);
+  const queue = [startNode];
+  const cameFrom = new Map();
+  const order = [];
+  let qi = 0;
+  while(qi < queue.length){
+    const current = queue[qi++];
+    order.push(current);
+    if(current[0]===endNode[0] && current[1]===endNode[1]) break;
+    for(const n of neighbors(current[0], current[1])){
+      const k = key(...n);
+      if(!visited.has(k)){
+        visited.add(k);
+        cameFrom.set(k, current);
+        queue.push(n);
+      }
+    }
+  }
+  return {order, cameFrom};
+}
+
+function reconstruct(cameFrom, startNode, endNode){
+  const path = [];
+  let node = endNode;
+  const sk = key(...startNode);
+  if(key(...node) !== sk && !cameFrom.has(key(...node))) return [];
+  while(key(...node) !== sk){
+    path.push(node);
+    node = cameFrom.get(key(...node));
+    if(!node) return [];
+  }
+  path.push(startNode);
+  path.reverse();
+  return path;
+}
+
+// ------------------------------------------------------------------ draw
+function toPx(node){ return [node[1]*CELL + CELL/2, node[0]*CELL + CELL/2]; }
+
+function drawBase(){
+  ctx.fillStyle = COL.terrain;
+  ctx.fillRect(0,0,W,H);
+
+  ctx.fillStyle = COL.green;
+  ctx.fillRect(0,0,W,H);
+  // re-punch terrain under roads/buildings by drawing roads next (roads sit above green)
+
+  for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
+    if(passable[r][c]){
+      ctx.fillStyle = onMain[r][c] ? COL.main : COL.road;
+      ctx.fillRect(c*CELL, r*CELL, CELL, CELL);
+    }
+  }
+
+  ctx.strokeStyle = COL.creek; ctx.lineWidth = 5; ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.beginPath();
+  ctx.moveTo(CREEK[0][0], CREEK[0][1]);
+  for(const p of CREEK.slice(1)) ctx.lineTo(p[0], p[1]);
+  ctx.stroke();
+
+  for(const [label,x1,y1,x2,y2] of BUILDINGS){
+    ctx.fillStyle = COL.building;
+    roundRect(x1,y1,x2-x1,y2-y1,4);
+    ctx.fill();
+    ctx.strokeStyle = COL.buildingEdge; ctx.lineWidth=1; ctx.stroke();
+  }
+}
+function roundRect(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+
+function drawPin(px,py,color){
+  ctx.save();
+  ctx.translate(px,py-10);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(0,0,9,Math.PI*0.15,Math.PI*0.85,true);
+  ctx.lineTo(0,16);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle='#fff';
+  ctx.beginPath(); ctx.arc(0,-1,3.4,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function drawRoute(path, upTo){
+  if(path.length<2) return;
+  ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.strokeStyle = COL.routeOutline; ctx.lineWidth = 8;
+  strokePath(path, upTo);
+  ctx.strokeStyle = COL.route; ctx.lineWidth = 5;
+  strokePath(path, upTo);
+}
+function strokePath(path, upTo){
+  ctx.beginPath();
+  const n = Math.max(2, Math.floor(upTo));
+  const [x0,y0] = toPx(path[0]);
+  ctx.moveTo(x0,y0);
+  for(let i=1;i<Math.min(n,path.length);i++){
+    const [x,y] = toPx(path[i]);
+    ctx.lineTo(x,y);
+  }
+  ctx.stroke();
+}
+
+// ------------------------------------------------------------ animation
+const {order, cameFrom} = breadthFirstSearch(start, end);
+const path = reconstruct(cameFrom, start, end);
+
+let visitedShown = 0, phase = 'idle', puckT = 0;
+
+function render(){
+  drawBase();
+
+  for(let i=0;i<visitedShown;i++){
+    const [r,c] = order[i];
+    if((r===start[0]&&c===start[1])||(r===end[0]&&c===end[1])) continue;
+    ctx.fillStyle = (i > visitedShown-10) ? COL.frontier : COL.visited;
+    ctx.fillRect(c*CELL, r*CELL, CELL, CELL);
+  }
+
+  if(phase==='route' || phase==='drive'){
+    drawRoute(path, phase==='route' ? routeShown : path.length);
+  }
+
+  const [sx,sy] = toPx(start), [ex,ey] = toPx(end);
+  drawPin(sx,sy, '#34a853');
+  drawPin(ex,ey, '#ea4335');
+
+  if(phase==='drive'){
+    const idx = puckT * (path.length-1);
+    const i0 = Math.floor(idx), i1 = Math.min(i0+1, path.length-1);
+    const f = idx - i0;
+    const [ax,ay] = toPx(path[i0]), [bx,by] = toPx(path[i1]);
+    const px = ax+(bx-ax)*f, py = ay+(by-ay)*f;
+    const angle = Math.atan2(by-ay, bx-ax);
+    ctx.save();
+    ctx.translate(px,py); ctx.rotate(angle);
+    ctx.fillStyle = '#1a73e8';
+    ctx.beginPath();
+    ctx.moveTo(9,0); ctx.lineTo(-6,6); ctx.lineTo(-6,-6); ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.restore();
+  }
+}
+
+let routeShown = 0;
+function tick(){
+  if(phase==='search'){
+    visitedShown = Math.min(visitedShown+4, order.length);
+    document.getElementById('statVisited').textContent = visitedShown;
+    if(visitedShown>=order.length){ phase='route'; routeShown=2; }
+  } else if(phase==='route'){
+    routeShown = Math.min(routeShown + Math.max(1,path.length/60), path.length);
+    if(routeShown>=path.length){ phase='drive'; puckT=0; }
+  } else if(phase==='drive'){
+    puckT = Math.min(puckT + 0.006, 1);
+    if(puckT>=1){ phase='done'; }
+  }
+  render();
+  if(phase!=='idle' && phase!=='done') requestAnimationFrame(tick);
+}
+
+function metersEstimate(){
+  // crude scale: assume the visible map spans ~650m across (typical for this zoom)
+  const metersPerPx = 650/1280;
+  let d=0;
+  for(let i=1;i<path.length;i++){
+    const [x1,y1]=toPx(path[i-1]), [x2,y2]=toPx(path[i]);
+    d += Math.hypot(x2-x1,y2-y1)*metersPerPx;
+  }
+  return d;
+}
+
+document.getElementById('goBtn').onclick = ()=>{
+  document.getElementById('goBtn').disabled = true;
+  visitedShown = 0; routeShown = 0; puckT = 0; phase = 'search';
+  document.getElementById('statLen').textContent = path.length ? path.length : '—';
+  const dist = metersEstimate();
+  document.getElementById('statDist').textContent = path.length ? Math.round(dist)+' m' : '—';
+  document.getElementById('statEta').textContent = path.length ? Math.max(1,Math.round(dist/70))+' min' : '—';
+  requestAnimationFrame(tick);
+  setTimeout(()=>{ document.getElementById('goBtn').disabled=false; document.getElementById('goBtn').textContent='Replay'; }, 200);
+};
+
+render();
+</script>
+</body>
+</html>
